@@ -77,25 +77,42 @@ class Visitor:
         page = None
         timeout = int(self.cfg.get("timeout_ms", 30000))
         idle_wait = int(self.cfg.get("idle_wait_ms", 8000))
+        # commit=服务器一返回响应头就算数；domcontentloaded=HTML 解析完；complete=完全加载
+        mode = self.cfg.get("load_mode", "commit")
+        wait_until = "commit" if mode == "commit" else "domcontentloaded"
+        # 服务器返回 4xx/5xx 时是否也算一次有效访问
+        count_err = str(self.cfg.get("count_http_error", "1")) in ("1", "true", "True")
         try:
             page = self._ctx.new_page()
-            resp = page.goto(url, wait_until="domcontentloaded", timeout=timeout)
-            page.wait_for_load_state("load", timeout=timeout)
-            try:
-                page.wait_for_load_state("networkidle", timeout=idle_wait)
-            except Exception:
-                pass  # 长轮询/广告类页面永不 idle，不算失败
-            ready = page.evaluate("() => document.readyState")
+            resp = page.goto(url, wait_until=wait_until, timeout=timeout)
+            if mode == "complete":
+                page.wait_for_load_state("load", timeout=timeout)
+                try:
+                    page.wait_for_load_state("networkidle", timeout=idle_wait)
+                except Exception:
+                    pass  # 长轮询/广告类页面永不 idle，不算失败
+                ready = page.evaluate("() => document.readyState")
+            else:
+                ready = "complete"
             try:
                 rec["title"] = (page.title() or "")[:300]
             except Exception:
                 pass
-            rec["http_status"] = resp.status if resp else None
-            if ready == "complete":
-                rec["status"] = "success"
-            else:
+            code = resp.status if resp else None
+            rec["http_status"] = code
+            if resp is None:
+                rec["status"] = "failed"
+                rec["error"] = "服务器没有返回任何响应"
+            elif mode == "complete" and ready != "complete":
                 rec["status"] = "timeout"
                 rec["error"] = f"页面未完全加载（readyState={ready}）"
+            elif code is not None and code >= 400 and not count_err:
+                rec["status"] = "failed"
+                rec["error"] = f"服务器返回 HTTP {code}"
+            else:
+                rec["status"] = "success"
+                if code is not None and code >= 400:
+                    rec["error"] = f"HTTP {code}（按设置仍计为一次访问）"
         except Exception as e:
             msg = str(e).split("\n")[0][:400]
             rec["status"] = "timeout" if "Timeout" in msg or "timeout" in msg else "failed"
@@ -114,21 +131,27 @@ class Visitor:
         """用同一个浏览器上下文探测公网 IP，返回 (ip, 来源)。"""
         custom = (self.cfg.get("ip_api") or "").strip()
         services = ([custom] if custom else []) + IP_CANDIDATES
+        fallback = None   # 只有 IPv6 时兜底用
         for url in services:
             page = None
             try:
                 page = self._ctx.new_page()
                 page.goto(url, wait_until="domcontentloaded", timeout=15000)
                 text = (page.inner_text("body") or "")[:2000]
+                ip = None
                 try:
                     data = json.loads(text)
                     if isinstance(data, dict) and data.get("ip"):
-                        return data["ip"], url
+                        ip = data["ip"]
                 except Exception:
                     pass
-                m = IP_RE.search(text)
-                if m:
-                    return m.group(1), url
+                if not ip:
+                    m = IP_RE.search(text)
+                    ip = m.group(1) if m else None
+                if ip:
+                    if ":" not in ip:      # 优先 IPv4
+                        return ip, url
+                    fallback = fallback or (ip, url)
             except Exception:
                 continue
             finally:
@@ -137,7 +160,7 @@ class Visitor:
                         page.close()
                     except Exception:
                         pass
-        return None, None
+        return fallback if fallback else (None, None)
 
 
 class Scheduler:
@@ -147,6 +170,8 @@ class Scheduler:
         self._stop = threading.Event()
         self._pause = threading.Event()
         self._thread = None
+        self._lock = threading.Lock()
+        self._extra = []      # 运行中动态插队的网址
         self.state = "idle"   # idle | running | paused
         self.stats = {"round": 0, "rounds": 0, "planned": 0, "done": 0,
                       "success": 0, "failed": 0, "current_url": "", "current_ip": "-"}
@@ -177,6 +202,16 @@ class Scheduler:
         self.state = "running"
         self._thread = threading.Thread(target=self._run, args=(cfg, urls), daemon=True)
         self._thread.start()
+        self._push_state()
+        return True
+
+    def add_now(self, url_row):
+        """运行时插入一个网址，下一个就访问它；没在运行时返回 False。"""
+        if not self.is_alive():
+            return False
+        with self._lock:
+            self._extra.append(url_row)
+        self.stats["planned"] = self.stats.get("planned", 0) + 1
         self._push_state()
         return True
 
@@ -235,9 +270,16 @@ class Scheduler:
                 self.stats.update(round=rnd, rounds=rounds, planned=len(order))
                 self._push_state()
 
-                for u in order:
-                    if self._stop.is_set():
-                        break
+                i = 0
+                while not self._stop.is_set():
+                    # 手机上新加的网址插队：下一个就轮到它
+                    with self._lock:
+                        u = self._extra.pop(0) if self._extra else None
+                    if u is None:
+                        if i >= len(order):
+                            break
+                        u = order[i]
+                        i += 1
                     self._wait_resume()
                     if self._stop.is_set():
                         break

@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="加网址">
+<title>加网址</title>
+<style>
+:root{--bg:#f4f6fa;--card:#fff;--text:#1f2937;--muted:#6b7280;--pri:#2563eb;--ok:#16a34a;--err:#dc2626;--bd:#e5e7eb}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.5 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;-webkit-text-size-adjust:100%}
+.wrap{max-width:560px;margin:0 auto;padding:16px 14px 40px}
+h1{font-size:19px;margin:6px 0 12px}
+h2{font-size:15px;margin:22px 0 8px;color:var(--muted)}
+.bar{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:12px 14px;font-size:14px;margin-bottom:14px}
+.bar b{font-size:15px}
+.tag{display:inline-block;padding:2px 9px;border-radius:999px;font-size:13px;font-weight:600}
+.tag.on{background:#e8f5ee;color:#15803d}.tag.off{background:#f3f4f6;color:#4b5563}
+textarea{width:100%;padding:12px;border:1px solid var(--bd);border-radius:12px;font-size:16px;font-family:inherit;background:#fff;color:var(--text);resize:vertical}
+textarea:focus{outline:none;border-color:var(--pri);box-shadow:0 0 0 3px rgba(37,99,235,.12)}
+button{width:100%;padding:14px;margin-top:10px;border-radius:12px;border:1px solid var(--bd);background:#fff;font-size:16px;font-family:inherit;color:var(--text)}
+button.primary{background:var(--pri);border-color:var(--pri);color:#fff;font-weight:600}
+button:active{opacity:.75}
+.msg{margin-top:12px;font-size:14px;min-height:22px}
+.msg.ok{color:var(--ok)}.msg.err{color:var(--err)}
+.list{list-style:none;margin:0;padding:0}
+.list li{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:10px 12px;margin-bottom:8px;font-size:14px;word-break:break-all;display:flex;justify-content:space-between;gap:10px}
+.list .n{color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
+.muted{color:var(--muted);font-weight:400}
+.tip{color:var(--muted);font-size:13px;margin-top:24px;line-height:1.7}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>网址自动访问器 · 手机端</h1>
+  <div id="bar" class="bar">连接中…</div>
+
+  <textarea id="u" rows="3" placeholder="把链接粘贴到这里&#10;可一次粘多个，一行一个"></textarea>
+  <button id="btnNow" class="primary">添加并马上访问</button>
+  <button id="btnAdd">只添加到列表</button>
+  <div id="msg" class="msg"></div>
+
+  <h2>网址列表 <span id="cnt" class="muted"></span></h2>
+  <ul id="list" class="list"></ul>
+
+  <p class="tip">
+    把这个页面加到手机主屏幕（Safari：分享 → 添加到主屏幕），以后一键打开。<br>
+    手机需要和电脑连同一个 WiFi；「马上访问」会让电脑下一个就访问它。
+  </p>
+</div>
+
+<script>
+const P = new URLSearchParams(location.search);
+let TOKEN = P.get('token') || localStorage.getItem('uv_token') || '';
+if (TOKEN) localStorage.setItem('uv_token', TOKEN);
+
+const $ = s => document.querySelector(s);
+const msg = (t, cls) => { const m = $('#msg'); m.textContent = t; m.className = 'msg ' + (cls || ''); };
+
+async function send(immediate) {
+  const text = $('#u').value.trim();
+  if (!text) return msg('先粘贴一个网址', 'err');
+  if (!TOKEN) return msg('缺少口令，请重新扫码打开', 'err');
+  msg('提交中…');
+  try {
+    const r = await fetch('/api/inbox', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({token: TOKEN, url: text, immediate: immediate ? 1 : 0})
+    });
+    const d = await r.json();
+    if (!d.ok) return msg(d.msg || '失败了', 'err');
+    $('#u').value = '';
+    const q = d.queued && d.queued.length;
+    msg(`已添加 ${d.added.length} 个` + (q ? `，${q} 个已插队马上访问` :
+        (d.running ? '（已加入本轮循环）' : '（电脑当前没在跑，下次启动生效）')), 'ok');
+    refresh();
+  } catch (e) {
+    msg('连不上电脑，检查 WiFi 是否同一个', 'err');
+  }
+}
+
+async function refresh() {
+  try {
+    const d = await fetch('/api/remote-info').then(r => r.json());
+    const s = d.state && d.state.stats || {};
+    $('#bar').innerHTML =
+      `<span class="tag ${d.running ? 'on' : 'off'}">${d.running ? '电脑正在跑' : '电脑空闲'}</span>
+       &nbsp; 成功 <b>${s.success || 0}</b> · 失败 <b>${s.failed || 0}</b> · 第 <b>${s.round || 0}</b> 轮`;
+    const list = d.urls || [];
+    $('#cnt').textContent = `(${list.length})`;
+    $('#list').innerHTML = list.map(u =>
+      `<li><span>${u.url.replace(/</g, '&lt;')}</span><span class="n">${u.ok || 0} 次${u.enabled ? '' : ' · 停用'}</span></li>`
+    ).join('');
+  } catch (e) {
+    $('#bar').textContent = '连不上电脑';
+  }
+}
+
+$('#btnAdd').onclick = () => send(false);
+$('#btnNow').onclick = () => send(true);
+refresh();
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>

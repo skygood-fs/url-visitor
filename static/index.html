@@ -39,6 +39,17 @@
       <input id="timeout_sec" type="number" min="5" value="30">
     </div>
     <div class="field">
+      <label>怎样算一次访问</label>
+      <select id="load_mode">
+        <option value="commit">服务器有响应就算（最快）</option>
+        <option value="domcontentloaded">页面内容加载完才算</option>
+        <option value="complete">完全加载（含所有资源）才算</option>
+      </select>
+    </div>
+    <div class="field">
+      <label class="chk"><input id="count_http_error" type="checkbox"> 404 / 500 等错误页也算一次</label>
+    </div>
+    <div class="field">
       <label>浏览器内核</label>
       <select id="browser">
         <option value="chrome">本机 Chrome</option>
@@ -79,6 +90,25 @@
       <div class="card"><span>进度</span><b id="sProg">0 / 0</b></div>
       <div class="card"><span>当前轮次</span><b id="sRound">0 / 0</b></div>
       <div class="card"><span>平均耗时</span><b id="sAvg">0 ms</b></div>
+    </div>
+
+    <div class="panel">
+      <div class="phead">
+        <h2>手机远程添加</h2>
+        <div class="tools">
+          <label class="chk"><input id="remote_enabled" type="checkbox"> 开启（手机连同一 WiFi 可用）</label>
+          <button id="btnCopyLink">复制网址</button>
+        </div>
+      </div>
+      <div class="remote">
+        <div id="qrbox" class="qr"><span class="muted">开启后这里显示二维码</span></div>
+        <div class="rinfo">
+          <p class="muted">手机和电脑连同一个 WiFi，相机扫码或浏览器打开：</p>
+          <code id="rurl">—</code>
+          <p class="muted">口令：<b id="rtoken">—</b>　<span id="rstatus">（未开启）</span></p>
+          <p class="muted">开启或关闭需要重启服务，会自动完成，页面刷新后生效。</p>
+        </div>
+      </div>
     </div>
 
     <div class="panel">

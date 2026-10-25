@@ -8,6 +8,10 @@ DB_PATH = os.environ.get("VV_DB", os.path.join(BASE, "data.db"))
 
 DEFAULTS = {
     "browser": "chrome",        # chrome=本机 Google Chrome | bundled=Playwright 内置 Chromium
+    "load_mode": "commit",      # commit=服务器一有响应就计数 | domcontentloaded | complete=完全加载
+    "count_http_error": "1",    # 服务器返回 4xx/5xx 时是否也算一次访问
+    "remote_enabled": "0",      # 手机远程添加：0=只本机 1=同一 WiFi 下的手机可访问
+    "remote_token": "",         # 远程添加口令（首次启动自动生成）
     "mode": "order",            # order=顺序 | random=随机
     "rounds": "1",              # 循环轮次，0=无限
     "interval_min": "5",        # 每次访问间隔（秒）下限
@@ -87,8 +91,8 @@ class DB:
         return [dict(r) for r in rows]
 
     def add_urls(self, raw_list):
-        """批量添加，返回新增条数；自动补全协议、去重。"""
-        added = 0
+        """批量添加，返回 [{'id','url'}]（已存在的也会返回，方便插队）；自动补全协议、去重。"""
+        added = []
         with self._lock:
             for raw in raw_list:
                 url = (raw or "").strip()
@@ -97,12 +101,15 @@ class DB:
                 if not url.startswith(("http://", "https://")):
                     url = "https://" + url
                 try:
-                    self._conn.execute(
+                    cur = self._conn.execute(
                         "INSERT INTO urls(url, note, enabled, created_at) VALUES(?,?,1,?)",
                         (url, "", _now()))
-                    added += 1
+                    added.append({"id": cur.lastrowid, "url": url})
                 except sqlite3.IntegrityError:
-                    continue
+                    row = self._conn.execute(
+                        "SELECT id, url FROM urls WHERE url=?", (url,)).fetchone()
+                    if row:
+                        added.append({"id": row["id"], "url": row["url"]})
             self._conn.commit()
         return added
 

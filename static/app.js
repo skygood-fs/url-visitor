@@ -28,6 +28,9 @@ function fillSettings(cfg) {
   $("#interval_max").value = cfg.interval_max;
   $("#timeout_sec").value = Math.round((+cfg.timeout_ms || 30000) / 1000);
   $("#browser").value = cfg.browser || "chrome";
+  $("#load_mode").value = cfg.load_mode || "commit";
+  $("#count_http_error").checked = String(cfg.count_http_error) !== "0";
+  $("#remote_enabled").checked = String(cfg.remote_enabled) === "1";
   $("#headless").value = String(cfg.headless);
   $("#ip_check").value = cfg.ip_check || "every_visit";
   $("#proxy").value = cfg.proxy || "";
@@ -41,6 +44,9 @@ function collectSettings() {
     interval_max: $("#interval_max").value,
     timeout_ms: String(Math.max(5, +$("#timeout_sec").value || 30) * 1000),
     browser: $("#browser").value,
+    load_mode: $("#load_mode").value,
+    count_http_error: $("#count_http_error").checked ? "1" : "0",
+    remote_enabled: $("#remote_enabled").checked ? "1" : "0",
     headless: $("#headless").value,
     ip_check: $("#ip_check").value,
     proxy: $("#proxy").value.trim(),
@@ -238,9 +244,48 @@ $("#btnClearVisits").onclick = async () => {
 };
 $("#btnExport").onclick = () => (location.href = "/api/export.csv");
 
-["browser", "mode", "rounds", "interval_min", "interval_max", "timeout_sec", "headless", "ip_check"].forEach((id) => {
+["browser", "load_mode", "count_http_error", "mode", "rounds", "interval_min", "interval_max",
+ "timeout_sec", "headless", "ip_check"].forEach((id) => {
   $("#" + id).addEventListener("change", saveSettings);
 });
+
+// 开关手机远程添加要换监听地址，必须重启服务
+$("#remote_enabled").addEventListener("change", async () => {
+  const on = $("#remote_enabled").checked;
+  await saveSettings();
+  toast(on ? "正在开启并重启服务…" : "正在关闭并重启服务…");
+  await fetch("/api/restart", { method: "POST" });
+  setTimeout(() => location.reload(), 4000);
+});
+
+$("#btnCopyLink").onclick = async () => {
+  const t = $("#rurl").textContent.trim();
+  try {
+    await navigator.clipboard.writeText(t);
+    toast("网址已复制，去手机浏览器粘贴打开");
+  } catch {
+    toast("复制失败，请手动选中上面的网址", "warn");
+  }
+};
+
+async function loadRemote() {
+  const d = await fetch("/api/remote-info").then((r) => r.json()).catch(() => null);
+  if (!d) return;
+  $("#rurl").textContent = d.url || "—";
+  $("#rtoken").textContent = d.token || "—";
+  $("#rstatus").textContent = d.enabled ? "（已开启，手机可访问）" : "（未开启）";
+  const box = $("#qrbox");
+  if (d.enabled) {
+    box.textContent = "";
+    const img = document.createElement("img");
+    img.src = "/api/qrcode.svg?t=" + Date.now();
+    img.alt = "手机扫码添加网址";
+    box.appendChild(img);
+  } else {
+    box.textContent = "开启后这里显示二维码";
+    box.classList.add("muted");
+  }
+}
 $("#proxy").addEventListener("blur", saveSettings);
 
 /* ---------- WebSocket ---------- */
@@ -252,9 +297,10 @@ function onMsg(msg) {
       renderLogs(msg.data.visits);
       renderSummary(msg.data.summary);
       renderState(msg.data.state);
+      loadRemote();
       break;
     case "urls": renderUrls(msg.data); break;
-    case "settings": fillSettings(msg.data); break;
+    case "settings": fillSettings(msg.data); loadRemote(); break;
     case "state": renderState(msg.data); break;
     case "stats": renderState({ state: curState, stats: msg.data }); break;
     case "log": pushLog(msg.data); break;

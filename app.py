@@ -1,12 +1,15 @@
 """网址自动访问器 —— Web 服务端（FastAPI + WebSocket 实时推送）。"""
 import asyncio
 import os
+import socket
+import sys
 import threading
+import time
 import webbrowser
 from contextlib import asynccontextmanager
 
-from fastapi import Body, FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi import Body, FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 import db as dbmod
@@ -21,6 +24,31 @@ CLIENTS = set()
 LOOP = None
 DB = dbmod.DB()
 SCHED = Scheduler(DB, lambda ev: emit(ev))
+
+
+def _ensure_token():
+    """首次启动自动生成远程添加口令。"""
+    cfg = DB.get_settings()
+    if not (cfg.get("remote_token") or "").strip():
+        import secrets
+        cfg = DB.set_settings({"remote_token": secrets.token_hex(3).upper()})
+    return cfg
+
+
+def _lan_ip():
+    """本机在 WiFi/局域网里的 IP，手机要用它访问。"""
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("10.255.255.255", 1))
+        return s.getsockname()[0]
+    except Exception:
+        return "127.0.0.1"
+    finally:
+        s.close()
+
+
+def _remote_on():
+    return str(DB.get_settings().get("remote_enabled", "0")) == "1"
 
 
 def emit(ev):
@@ -54,6 +82,19 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+
+REMOTE_PATHS = ("/m", "/api/inbox", "/api/qrcode.svg", "/api/remote-info")
+
+
+@app.middleware("http")
+async def lan_guard(request: Request, call_next):
+    """开启手机添加后监听局域网，但局域网只能访问 /m 与收件接口，本机不受限制。"""
+    path = request.url.path
+    if _remote_on() and not path.startswith(REMOTE_PATHS):
+        client = request.client.host if request.client else ""
+        if client not in ("127.0.0.1", "::1", "localhost"):
+            return PlainTextResponse("局域网仅开放手机添加页面 /m", status_code=403)
+    return await call_next(request)
 
 
 # ---------------- 页面 ----------------
@@ -96,7 +137,7 @@ def api_urls():
 def api_add_urls(payload: dict = Body(...)):
     text = payload.get("text") or ""
     items = [x.strip() for x in text.replace(",", "\n").splitlines()]
-    n = DB.add_urls(items)
+    n = len(DB.add_urls(items))
     urls = DB.list_urls()
     emit({"type": "urls", "data": urls})
     return {"added": n, "urls": urls}
@@ -165,6 +206,75 @@ def api_set_settings(payload: dict = Body(...)):
     return cfg
 
 
+# ---------------- 手机远程添加 ----------------
+@app.get("/m")
+def mobile_page():
+    return FileResponse(os.path.join(STATIC, "m.html"))
+
+
+@app.get("/api/remote-info")
+def api_remote_info():
+    cfg = DB.get_settings()
+    ip = _lan_ip()
+    return {
+        "enabled": _remote_on(),
+        "ip": ip,
+        "port": PORT,
+        "token": cfg.get("remote_token", ""),
+        "url": f"http://{ip}:{PORT}/m?token={cfg.get('remote_token', '')}",
+        "running": SCHED.is_alive(),
+        "state": SCHED.snapshot(),
+        "summary": DB.summary(),
+        "urls": DB.list_urls(),
+    }
+
+
+@app.get("/api/qrcode.svg")
+def api_qrcode():
+    cfg = DB.get_settings()
+    target = f"http://{_lan_ip()}:{PORT}/m?token={cfg.get('remote_token', '')}"
+    try:
+        import segno
+        svg = segno.make(target).svg_inline(scale=9, border=2)
+    except Exception:
+        return PlainTextResponse("二维码库缺失，直接用上面的网址", status_code=500)
+    return Response(svg, media_type="image/svg+xml")
+
+
+def _inbox(payload: dict):
+    cfg = DB.get_settings()
+    if not _remote_on():
+        return JSONResponse({"ok": False, "msg": "未开启手机添加"}, status_code=403)
+    if str((payload or {}).get("token", "")).upper() != str(cfg.get("remote_token", "")).upper():
+        return JSONResponse({"ok": False, "msg": "口令不对"}, status_code=401)
+    text = (payload or {}).get("url") or (payload or {}).get("text") or ""
+    rows = DB.add_urls([x.strip() for x in text.replace(",", "\n").splitlines()])
+    if not rows:
+        return JSONResponse({"ok": False, "msg": "没识别到网址"}, status_code=400)
+    queued = []
+    if str((payload or {}).get("immediate", 1)) not in ("0", "false", "False"):
+        for r in rows:
+            if SCHED.add_now(r):
+                queued.append(r["url"])
+    urls = DB.list_urls()
+    emit({"type": "urls", "data": urls})
+    emit({"type": "toast", "level": "info",
+          "msg": f"手机添加 {len(rows)} 个网址" + (f"，{len(queued)} 个已插队" if queued else "")})
+    return {"ok": True, "added": [r["url"] for r in rows],
+            "queued": queued, "running": SCHED.is_alive()}
+
+
+@app.post("/api/inbox")
+def api_inbox_post(payload: dict = Body(...)):
+    return _inbox(payload or {})
+
+
+@app.get("/api/inbox")
+def api_inbox_get(token: str = "", url: str = "", text: str = "", immediate: int = 1):
+    """GET 版本：方便手机快捷指令 / 自动化工具直接调一个链接。"""
+    return _inbox({"token": token, "url": url or text, "immediate": immediate})
+
+
 # ---------------- 控制 ----------------
 @app.post("/api/control")
 def api_control(payload: dict = Body(...)):
@@ -187,9 +297,21 @@ def api_state():
     return {"state": SCHED.snapshot(), "summary": DB.summary()}
 
 
+@app.post("/api/restart")
+def api_restart():
+    """切换监听地址后需要重启进程才能生效。"""
+    def _do():
+        time.sleep(0.6)
+        os.execv(sys.executable, [sys.executable, os.path.join(BASE, "app.py")])
+    threading.Thread(target=_do, daemon=True).start()
+    return {"ok": True, "msg": "restarting"}
+
+
 if __name__ == "__main__":
     import uvicorn
 
+    _ensure_token()
+    host = "0.0.0.0" if _remote_on() else "127.0.0.1"
     if os.environ.get("VV_NO_OPEN") != "1":
         threading.Timer(1.2, lambda: webbrowser.open(f"http://127.0.0.1:{PORT}")).start()
-    uvicorn.run(app, host="127.0.0.1", port=PORT, log_level="warning")
+    uvicorn.run(app, host=host, port=PORT, log_level="warning")
