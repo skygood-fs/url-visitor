@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>网址自动访问器</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <div class="brand"><span class="dot"></span>网址自动访问器</div>
+  <div class="hstatus">
+    <span id="badge" class="badge idle">空闲</span>
+    <span class="ipbox">当前公网 IP：<b id="curIp">—</b></span>
+    <span id="clock" class="muted"></span>
+  </div>
+</header>
+
+<main>
+  <aside class="panel">
+    <h2>运行参数</h2>
+    <div class="field">
+      <label>遍历方式</label>
+      <select id="mode">
+        <option value="order">按顺序</option>
+        <option value="random">随机</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>循环轮次 <span class="hint">0 = 无限</span></label>
+      <input id="rounds" type="number" min="0" value="1">
+    </div>
+    <div class="field two">
+      <div><label>间隔下限(秒)</label><input id="interval_min" type="number" min="0" step="0.5" value="5"></div>
+      <div><label>间隔上限(秒)</label><input id="interval_max" type="number" min="0" step="0.5" value="5"></div>
+    </div>
+    <div class="field">
+      <label>单页超时(秒)</label>
+      <input id="timeout_sec" type="number" min="5" value="30">
+    </div>
+    <div class="field">
+      <label>浏览器内核</label>
+      <select id="browser">
+        <option value="chrome">本机 Chrome</option>
+        <option value="bundled">Playwright 内置 Chromium</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>浏览器窗口</label>
+      <select id="headless">
+        <option value="1">后台无头（推荐）</option>
+        <option value="0">可见窗口</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>IP 探测频率</label>
+      <select id="ip_check">
+        <option value="every_visit">每次访问都探测</option>
+        <option value="every_round">每轮探测一次</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>代理 <span class="hint">留空直连</span></label>
+      <input id="proxy" type="text" placeholder="http://127.0.0.1:7890">
+    </div>
+
+    <div class="btns">
+      <button id="btnStart" class="primary">启动</button>
+      <button id="btnPause">暂停</button>
+      <button id="btnStop" class="danger">停止</button>
+    </div>
+    <p class="tip">页面完全加载（readyState=complete）才计 1 次成功访问。</p>
+  </aside>
+
+  <section class="col">
+    <div class="cards">
+      <div class="card"><span>成功访问</span><b id="sOk">0</b></div>
+      <div class="card"><span>失败/超时</span><b id="sBad" class="warn">0</b></div>
+      <div class="card"><span>进度</span><b id="sProg">0 / 0</b></div>
+      <div class="card"><span>当前轮次</span><b id="sRound">0 / 0</b></div>
+      <div class="card"><span>平均耗时</span><b id="sAvg">0 ms</b></div>
+    </div>
+
+    <div class="panel">
+      <div class="phead">
+        <h2>网址列表</h2>
+        <div class="tools">
+          <button id="btnAllOn">全部启用</button>
+          <button id="btnAllOff">全部停用</button>
+          <button id="btnClearUrls" class="danger">清空列表</button>
+        </div>
+      </div>
+      <div class="addbox">
+        <textarea id="newUrls" rows="2" placeholder="每行一个网址，或用逗号分隔，例如：&#10;https://example.com&#10;www.baidu.com"></textarea>
+        <button id="btnAdd" class="primary">添加</button>
+      </div>
+      <table class="tb urls">
+        <thead><tr><th style="width:34px">用</th><th>网址</th><th style="width:88px">成功</th><th style="width:88px">失败</th><th style="width:130px">最后 IP</th><th style="width:130px">最后访问</th><th style="width:60px"></th></tr></thead>
+        <tbody id="urlBody"></tbody>
+      </table>
+    </div>
+
+    <div class="panel">
+      <div class="phead">
+        <h2>实时访问记录</h2>
+        <div class="tools">
+          <label class="chk"><input id="autoScroll" type="checkbox" checked> 自动滚动</label>
+          <button id="btnExport">导出 CSV</button>
+          <button id="btnClearVisits" class="danger">清空记录</button>
+        </div>
+      </div>
+      <table class="tb logs">
+        <thead><tr><th style="width:130px">时间</th><th style="width:50px">轮次</th><th>网址</th><th style="width:80px">状态</th><th style="width:60px">HTTP</th><th style="width:120px">公网 IP</th><th style="width:80px">耗时</th><th>标题 / 错误</th></tr></thead>
+        <tbody id="logBody"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<div id="toast" class="toast"></div>
+<script src="/static/app.js"></script>
+</body>
+</html>
