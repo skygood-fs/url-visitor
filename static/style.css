@@ -64,6 +64,7 @@ button.danger{color:var(--err)} button.danger:hover:not(:disabled){background:#f
 .tb td{padding:8px 10px;border-bottom:1px solid #f1f3f7;vertical-align:middle}
 .tb tr:last-child td{border-bottom:none}
 .tb .url{word-break:break-all;color:var(--primary)}
+.tb .utitle{max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tb .num{font-variant-numeric:tabular-nums}
 .tb.logs tbody tr.new{animation:flash .9s ease}
 @keyframes flash{from{background:#eff6ff}to{background:transparent}}

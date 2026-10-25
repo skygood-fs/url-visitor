@@ -95,7 +95,7 @@ function renderUrls(list) {
   if (!list.length) {
     const tr = el("tr");
     const td = el("td", "empty", "还没有网址，先在上方添加");
-    td.colSpan = 7;
+    td.colSpan = 8;
     tr.appendChild(td);
     body.appendChild(tr);
     return;
@@ -121,6 +121,12 @@ function renderUrls(list) {
     a.rel = "noopener noreferrer";
     tdUrl.appendChild(a);
 
+    // 网页标题：访问时读到的真实 <title>，还没访问过就留空
+    const t = (u.title || "").trim();
+    const tdTitle = el("td", "utitle", t || "—");
+    tdTitle.title = t || "还没访问过，访问后这里显示网页标题";
+    if (!t) tdTitle.classList.add("muted");
+
     const tdOk = el("td", "num", String(u.ok || 0));
     const tdBad = el("td", "num", String(u.bad || 0));
     const tdIp = el("td", "num", u.last_ip || "—");
@@ -133,7 +139,7 @@ function renderUrls(list) {
     };
     tdOp.appendChild(del);
 
-    [tdOn, tdUrl, tdOk, tdBad, tdIp, tdAt, tdOp].forEach((td) => tr.appendChild(td));
+    [tdOn, tdUrl, tdTitle, tdOk, tdBad, tdIp, tdAt, tdOp].forEach((td) => tr.appendChild(td));
     body.appendChild(tr);
   });
 }

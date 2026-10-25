@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS urls(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   url TEXT NOT NULL UNIQUE,
   note TEXT DEFAULT '',
+  title TEXT DEFAULT '',
   enabled INTEGER DEFAULT 1,
   created_at TEXT
 );
@@ -54,7 +55,7 @@ CREATE INDEX IF NOT EXISTS idx_visits_url ON visits(url_id);
 CREATE INDEX IF NOT EXISTS idx_visits_time ON visits(id DESC);
 """
 
-URL_FIELDS = ("id", "url", "note", "enabled", "created_at")
+URL_FIELDS = ("id", "url", "note", "title", "enabled", "created_at")
 
 
 def _now():
@@ -70,12 +71,28 @@ class DB:
         self._conn.row_factory = sqlite3.Row
         with self._lock:
             self._conn.executescript(SCHEMA)
+            self._migrate()
             self._conn.commit()
+
+    def _migrate(self):
+        """老数据库平滑升级：补齐后加的列。"""
+        cols = {r["name"] for r in self._conn.execute("PRAGMA table_info(urls)")}
+        if "title" not in cols:
+            self._conn.execute("ALTER TABLE urls ADD COLUMN title TEXT DEFAULT ''")
+            # 用历史记录里最后一次读到的标题回填，免得列表空着要等下一轮
+            self._conn.execute("""
+                UPDATE urls SET title = COALESCE((
+                    SELECT v.title FROM visits v
+                    WHERE v.url_id = urls.id AND v.title IS NOT NULL AND v.title <> ''
+                    ORDER BY v.id DESC LIMIT 1
+                ), '')
+                WHERE title IS NULL OR title = ''
+            """)
 
     # ---------- 网址 ----------
     def list_urls(self):
         sql = """
-        SELECT u.id, u.url, u.note, u.enabled, u.created_at,
+        SELECT u.id, u.url, u.note, u.title, u.enabled, u.created_at,
                (SELECT COUNT(*) FROM visits v WHERE v.url_id=u.id AND v.status='success') AS ok,
                (SELECT COUNT(*) FROM visits v WHERE v.url_id=u.id AND v.status!='success') AS bad,
                (SELECT v.public_ip FROM visits v WHERE v.url_id=u.id AND v.public_ip IS NOT NULL
@@ -144,6 +161,10 @@ class DB:
             self._conn.execute(
                 f"INSERT INTO visits({','.join(cols)}) VALUES({','.join('?' * len(cols))})",
                 [rec.get(c) for c in cols])
+            # 网址列表要显示最新标题：本次读到就更新，读不到（失败/超时）保留上次的
+            if rec.get("url_id") and (rec.get("title") or "").strip():
+                self._conn.execute("UPDATE urls SET title=? WHERE id=?",
+                                   (rec["title"].strip()[:300], rec["url_id"]))
             self._conn.commit()
 
     def list_visits(self, limit=200):
