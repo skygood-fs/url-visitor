@@ -10,6 +10,10 @@ const fmt = (ms) => (ms >= 1000 ? (ms / 1000).toFixed(1) + " s" : ms + " ms");
 let settings = {};
 let curState = "idle";
 let toastTimer = null;
+let firstPaint = false;
+
+// 刷新后别让浏览器把滚动位置恢复到上次（那会停在最旧的记录上）
+if ("scrollRestoration" in history) history.scrollRestoration = "manual";
 
 function toast(msg, level = "info") {
   const t = $("#toast");
@@ -190,9 +194,23 @@ function pushLog(r) {
   const body = $("#logBody");
   const emptyRow = body.querySelector(".empty");
   if (emptyRow) body.textContent = "";
-  body.insertBefore(logRow(r, true), body.firstChild);
+  body.insertBefore(logRow(r, true), body.firstChild);   // 最新一条在最上面
   while (body.rows.length > 300) body.deleteRow(body.rows.length - 1);
-  if ($("#autoScroll").checked) window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
+  if (autoFollow()) scrollToLatest(true);
+}
+
+/* ---------- 自动跟随最新 ---------- */
+// 表格是「最新在上」，所以跟随 = 滚到第一行，而不是滚到页面底部（底部是最旧的记录）
+function autoFollow() {
+  return $("#autoScroll").checked;
+}
+function scrollToLatest(smooth) {
+  const first = $("#logBody").firstElementChild;
+  if (!first || first.classList.contains("empty")) return;
+  const r = first.getBoundingClientRect();
+  if (r.top >= 70 && r.bottom <= window.innerHeight) return;   // 已经看得见就不动，免得抖
+  const y = window.scrollY + r.top - 90;                       // 让表头也露出来
+  window.scrollTo({ top: Math.max(0, y), behavior: smooth ? "smooth" : "auto" });
 }
 
 /* ---------- 事件绑定 ---------- */
@@ -306,6 +324,8 @@ function onMsg(msg) {
       renderSummary(msg.data.summary);
       renderState(msg.data.state);
       loadRemote();
+      if (!firstPaint && autoFollow()) requestAnimationFrame(() => scrollToLatest(false));
+      firstPaint = true;
       break;
     case "urls": renderUrls(msg.data); break;
     case "settings": fillSettings(msg.data); loadRemote(); break;
@@ -316,6 +336,15 @@ function onMsg(msg) {
     case "toast": toast(msg.data.msg, msg.data.level); break;
   }
 }
+
+/* 记住「自动跟随最新」的勾选，刷新后保持 */
+const AS_KEY = "uv_autoscroll";
+const asSaved = localStorage.getItem(AS_KEY);
+if (asSaved !== null) $("#autoScroll").checked = asSaved === "1";
+$("#autoScroll").addEventListener("change", () => {
+  localStorage.setItem(AS_KEY, $("#autoScroll").checked ? "1" : "0");
+  if ($("#autoScroll").checked) scrollToLatest(true);
+});
 
 function connect() {
   const ws = new WebSocket(`ws://${location.host}/ws`);
