@@ -87,7 +87,7 @@ async function send(immediate) {
 
 async function refresh() {
   try {
-    const d = await fetch('/api/remote-info').then(r => r.json());
+    const d = await fetch('/api/remote-info?token=' + encodeURIComponent(TOKEN)).then(r => r.json());
     const s = d.state && d.state.stats || {};
     $('#bar').innerHTML =
       `<span class="tag ${d.running ? 'on' : 'off'}">${d.running ? '电脑正在跑' : '电脑空闲'}</span>

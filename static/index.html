@@ -99,17 +99,24 @@
       <div class="phead">
         <h2>手机远程添加</h2>
         <div class="tools">
-          <label class="chk"><input id="remote_enabled" type="checkbox"> 开启（手机连同一 WiFi 可用）</label>
-          <button id="btnCopyLink">复制网址</button>
+          <label class="chk"><input id="remote_enabled" type="checkbox"> 开启（手机可用）</label>
+          <button id="btnCopyLink">复制手机网址</button>
+          <button id="btnCopyApi">复制接口地址</button>
         </div>
       </div>
       <div class="remote">
         <div id="qrbox" class="qr"><span class="muted">开启后这里显示二维码</span></div>
         <div class="rinfo">
-          <p class="muted">手机和电脑连同一个 WiFi，相机扫码或浏览器打开：</p>
+          <p class="muted">手机扫码或浏览器打开这个地址：</p>
           <code id="rurl">—</code>
           <p class="muted">口令：<b id="rtoken">—</b>　<span id="rstatus">（未开启）</span></p>
-          <p class="muted">开启或关闭需要重启服务，会自动完成，页面刷新后生效。</p>
+          <label class="lbl">公网地址（在外面用，留空则只在同一个 WiFi 能用）</label>
+          <div class="pubrow">
+            <input id="public_base" type="text" placeholder="http://oknas.asia:8765  或  https://uv.oknas.asia">
+            <button id="btnSavePub" class="mini">保存</button>
+          </div>
+          <p class="muted" id="pubhint">填好保存后，上面的地址和二维码会立刻换成公网地址，在外面（4G也能用）。</p>
+          <p class="muted">开启或关闭「手机远程添加」需要重启服务，会自动完成，页面刷新后生效。</p>
         </div>
       </div>
     </div>

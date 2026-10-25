@@ -39,6 +39,7 @@ function fillSettings(cfg) {
   $("#headless").value = String(cfg.headless);
   $("#ip_check").value = cfg.ip_check || "every_visit";
   $("#proxy").value = cfg.proxy || "";
+  $("#public_base").value = cfg.public_base || "";
 }
 
 function collectSettings() {
@@ -284,22 +285,47 @@ $("#remote_enabled").addEventListener("change", async () => {
   setTimeout(() => location.reload(), 4000);
 });
 
-$("#btnCopyLink").onclick = async () => {
-  const t = $("#rurl").textContent.trim();
+// 公网地址单独保存，避免改别的设置时被半成品地址覆盖
+$("#btnSavePub").onclick = async () => {
+  const base = $("#public_base").value.trim().replace(/\/+$/, "");
+  if (base && !/^https?:\/\//i.test(base)) {
+    return toast("要写成 http://… 或 https://… 开头", "warn");
+  }
+  const cfg = await fetch("/api/settings", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ public_base: base }),
+  }).then((r) => r.json());
+  settings = cfg;
+  await loadRemote();
+  toast(base ? "已保存，现在手机在外面也能用" : "已清空，回到只在同一个 WiFi 能用");
+};
+
+async function copyText(t, okMsg) {
   try {
     await navigator.clipboard.writeText(t);
-    toast("网址已复制，去手机浏览器粘贴打开");
+    toast(okMsg);
   } catch {
-    toast("复制失败，请手动选中上面的网址", "warn");
+    toast("复制失败，请手动选中上面的内容", "warn");
   }
-};
+}
+$("#btnCopyLink").onclick = () => copyText($("#rurl").textContent.trim(), "已复制，去手机浏览器粘贴打开");
+$("#btnCopyApi").onclick = () =>
+  copyText(`${$("#rurl").textContent.trim().replace(/\/m\?.*$/, "")}/api/inbox?token=${$("#rtoken").textContent.trim()}&url=`,
+    "已复制，粘贴到 iPhone 快捷指令里");
 
 async function loadRemote() {
   const d = await fetch("/api/remote-info").then((r) => r.json()).catch(() => null);
   if (!d) return;
   $("#rurl").textContent = d.url || "—";
   $("#rtoken").textContent = d.token || "—";
-  $("#rstatus").textContent = d.enabled ? "（已开启，手机可访问）" : "（未开启）";
+  $("#rstatus").textContent = d.enabled
+    ? (d.public ? "（已开启，公网可用）" : "（已开启，仅同一 WiFi）")
+    : "（未开启）";
+  // 输入框只显示用户自己填的公网地址，局域网地址不往里回填
+  if (document.activeElement !== $("#public_base")) {
+    $("#public_base").value = d.public ? d.base || "" : "";
+  }
   const box = $("#qrbox");
   if (d.enabled) {
     box.textContent = "";

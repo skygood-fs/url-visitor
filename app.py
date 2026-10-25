@@ -86,14 +86,21 @@ app = FastAPI(lifespan=lifespan)
 REMOTE_PATHS = ("/m", "/api/inbox", "/api/qrcode.svg", "/api/remote-info")
 
 
+def _client_ip(request: Request):
+    """真实来源 IP：走 ngrok / 反向代理时 request.client 是 127.0.0.1，要看 X-Forwarded-For。"""
+    xff = request.headers.get("x-forwarded-for", "")
+    if xff:
+        return xff.split(",")[0].strip()
+    return request.client.host if request.client else ""
+
+
 @app.middleware("http")
 async def lan_guard(request: Request, call_next):
-    """开启手机添加后监听局域网，但局域网只能访问 /m 与收件接口，本机不受限制。"""
+    """开启手机添加后监听局域网，但外部只能访问 /m 与收件接口，本机不受限制。"""
     path = request.url.path
     if _remote_on() and not path.startswith(REMOTE_PATHS):
-        client = request.client.host if request.client else ""
-        if client not in ("127.0.0.1", "::1", "localhost"):
-            return PlainTextResponse("局域网仅开放手机添加页面 /m", status_code=403)
+        if _client_ip(request) not in ("127.0.0.1", "::1", "localhost"):
+            return PlainTextResponse("外部仅开放手机添加页面 /m", status_code=403)
     return await call_next(request)
 
 
@@ -212,16 +219,30 @@ def mobile_page():
     return FileResponse(os.path.join(STATIC, "m.html"))
 
 
+def _base_url(cfg):
+    """手机访问用的地址：填了公网地址（端口转发 / 域名 / 反代）就优先用它，否则局域网 IP。"""
+    pb = (cfg.get("public_base") or "").strip().rstrip("/")
+    if pb:
+        return pb if pb.startswith(("http://", "https://")) else "http://" + pb
+    return f"http://{_lan_ip()}:{PORT}"
+
+
 @app.get("/api/remote-info")
-def api_remote_info():
+def api_remote_info(request: Request, token: str = ""):
     cfg = DB.get_settings()
-    ip = _lan_ip()
+    # 从公网/局域网来的请求必须带正确口令，否则不泄露网址列表和口令本身
+    if _client_ip(request) not in ("127.0.0.1", "::1", "localhost"):
+        if (token or "").strip() != (cfg.get("remote_token") or ""):
+            return JSONResponse({"ok": False, "msg": "口令不对"}, status_code=401)
+    base = _base_url(cfg)
     return {
         "enabled": _remote_on(),
-        "ip": ip,
+        "ip": _lan_ip(),
         "port": PORT,
+        "base": base,
+        "public": bool((cfg.get("public_base") or "").strip()),
         "token": cfg.get("remote_token", ""),
-        "url": f"http://{ip}:{PORT}/m?token={cfg.get('remote_token', '')}",
+        "url": f"{base}/m?token={cfg.get('remote_token', '')}",
         "running": SCHED.is_alive(),
         "state": SCHED.snapshot(),
         "summary": DB.summary(),
@@ -232,7 +253,7 @@ def api_remote_info():
 @app.get("/api/qrcode.svg")
 def api_qrcode():
     cfg = DB.get_settings()
-    target = f"http://{_lan_ip()}:{PORT}/m?token={cfg.get('remote_token', '')}"
+    target = f"{_base_url(cfg)}/m?token={cfg.get('remote_token', '')}"
     try:
         import segno
         svg = segno.make(target).svg_inline(scale=9, border=2)

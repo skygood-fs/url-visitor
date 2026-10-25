@@ -14,6 +14,7 @@ DEFAULTS = {
     "title_wait_ms": "3000",    # 读标题最多等多久（毫秒），超时就不读，照常计数
     "remote_enabled": "0",      # 手机远程添加：0=只本机 1=同一 WiFi 下的手机可访问
     "remote_token": "",         # 远程添加口令（首次启动自动生成）
+    "public_base": "",          # 公网访问地址（端口转发 / 域名 / 反代），留空则只用局域网
     "mode": "order",            # order=顺序 | random=随机
     "rounds": "1",              # 循环轮次，0=无限
     "interval_min": "5",        # 每次访问间隔（秒）下限
