@@ -10,6 +10,8 @@ DEFAULTS = {
     "browser": "chrome",        # chrome=本机 Google Chrome | bundled=Playwright 内置 Chromium
     "load_mode": "commit",      # commit=服务器一有响应就计数 | domcontentloaded | complete=完全加载
     "count_http_error": "1",    # 服务器返回 4xx/5xx 时是否也算一次访问
+    "fetch_title": "1",         # 快速模式下是否等一下把网页标题读出来
+    "title_wait_ms": "3000",    # 读标题最多等多久（毫秒），超时就不读，照常计数
     "remote_enabled": "0",      # 手机远程添加：0=只本机 1=同一 WiFi 下的手机可访问
     "remote_token": "",         # 远程添加口令（首次启动自动生成）
     "mode": "order",            # order=顺序 | random=随机

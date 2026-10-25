@@ -94,10 +94,7 @@ class Visitor:
                 ready = page.evaluate("() => document.readyState")
             else:
                 ready = "complete"
-            try:
-                rec["title"] = (page.title() or "")[:300]
-            except Exception:
-                pass
+            rec["title"] = self._read_title(page, mode)
             code = resp.status if resp else None
             rec["http_status"] = code
             if resp is None:
@@ -126,6 +123,21 @@ class Visitor:
                 except Exception:
                     pass
         return rec
+
+    def _read_title(self, page, mode):
+        """快速模式下页面还没解析出标题，等它出现再读；不影响计数。"""
+        if str(self.cfg.get("fetch_title", "1")) not in ("1", "true", "True"):
+            return None
+        wait_ms = int(self.cfg.get("title_wait_ms", 3000))
+        if mode != "complete":
+            try:
+                page.wait_for_function("() => !!document.title", timeout=wait_ms)
+            except Exception:
+                pass
+        try:
+            return ((page.title() or "").strip())[:300] or None
+        except Exception:
+            return None
 
     def detect_ip(self):
         """用同一个浏览器上下文探测公网 IP，返回 (ip, 来源)。"""
@@ -214,6 +226,17 @@ class Scheduler:
         self.stats["planned"] = self.stats.get("planned", 0) + 1
         self._push_state()
         return True
+
+    def remove_url(self, url_id):
+        """运行中删除网址时，把还没轮到它的插队记录也清掉。"""
+        with self._lock:
+            before = len(self._extra)
+            self._extra = [u for u in self._extra if u.get("id") != url_id]
+            dropped = before - len(self._extra)
+        if dropped:
+            self.stats["planned"] = max(0, self.stats.get("planned", 0) - dropped)
+            self._push_state()
+        return dropped
 
     def pause(self):
         if self.state == "running":

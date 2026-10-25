@@ -25,8 +25,10 @@ button:active{opacity:.75}
 .msg{margin-top:12px;font-size:14px;min-height:22px}
 .msg.ok{color:var(--ok)}.msg.err{color:var(--err)}
 .list{list-style:none;margin:0;padding:0}
-.list li{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:10px 12px;margin-bottom:8px;font-size:14px;word-break:break-all;display:flex;justify-content:space-between;gap:10px}
-.list .n{color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
+.list li{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:10px 12px;margin-bottom:8px;font-size:14px;display:flex;align-items:center;justify-content:space-between;gap:10px}
+.list .u{flex:1;word-break:break-all;min-width:0}
+.list .n{color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums;margin-right:8px}
+.list button{width:auto;padding:6px 12px;margin:0;font-size:13px;border-radius:8px;color:var(--err);flex:none}
 .muted{color:var(--muted);font-weight:400}
 .tip{color:var(--muted);font-size:13px;margin-top:24px;line-height:1.7}
 </style>
@@ -90,11 +92,32 @@ async function refresh() {
        &nbsp; 成功 <b>${s.success || 0}</b> · 失败 <b>${s.failed || 0}</b> · 第 <b>${s.round || 0}</b> 轮`;
     const list = d.urls || [];
     $('#cnt').textContent = `(${list.length})`;
+    const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
     $('#list').innerHTML = list.map(u =>
-      `<li><span>${u.url.replace(/</g, '&lt;')}</span><span class="n">${u.ok || 0} 次${u.enabled ? '' : ' · 停用'}</span></li>`
+      `<li><span class="u">${esc(u.url)}</span><span><span class="n">${u.ok || 0} 次</span>` +
+      `<button data-id="${u.id}">删除</button></span></li>`
     ).join('');
+    $('#list').querySelectorAll('button').forEach(b => {
+      b.onclick = () => del(b.dataset.id);
+    });
   } catch (e) {
     $('#bar').textContent = '连不上电脑';
+  }
+}
+
+async function del(id) {
+  if (!confirm('把这个网址从列表里删掉？')) return;
+  try {
+    const r = await fetch('/api/inbox/delete', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({token: TOKEN, id: Number(id)})
+    });
+    const d = await r.json();
+    msg(d.ok ? '已删除' : (d.msg || '删除失败'), d.ok ? 'ok' : 'err');
+    refresh();
+  } catch (e) {
+    msg('连不上电脑', 'err');
   }
 }
 

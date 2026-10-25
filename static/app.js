@@ -30,6 +30,7 @@ function fillSettings(cfg) {
   $("#browser").value = cfg.browser || "chrome";
   $("#load_mode").value = cfg.load_mode || "commit";
   $("#count_http_error").checked = String(cfg.count_http_error) !== "0";
+  $("#fetch_title").checked = String(cfg.fetch_title) !== "0";
   $("#remote_enabled").checked = String(cfg.remote_enabled) === "1";
   $("#headless").value = String(cfg.headless);
   $("#ip_check").value = cfg.ip_check || "every_visit";
@@ -46,6 +47,7 @@ function collectSettings() {
     browser: $("#browser").value,
     load_mode: $("#load_mode").value,
     count_http_error: $("#count_http_error").checked ? "1" : "0",
+    fetch_title: $("#fetch_title").checked ? "1" : "0",
     remote_enabled: $("#remote_enabled").checked ? "1" : "0",
     headless: $("#headless").value,
     ip_check: $("#ip_check").value,
@@ -244,7 +246,7 @@ $("#btnClearVisits").onclick = async () => {
 };
 $("#btnExport").onclick = () => (location.href = "/api/export.csv");
 
-["browser", "load_mode", "count_http_error", "mode", "rounds", "interval_min", "interval_max",
+["browser", "load_mode", "count_http_error", "fetch_title", "mode", "rounds", "interval_min", "interval_max",
  "timeout_sec", "headless", "ip_check"].forEach((id) => {
   $("#" + id).addEventListener("change", saveSettings);
 });

@@ -275,6 +275,36 @@ def api_inbox_get(token: str = "", url: str = "", text: str = "", immediate: int
     return _inbox({"token": token, "url": url or text, "immediate": immediate})
 
 
+def _inbox_delete(payload: dict):
+    cfg = DB.get_settings()
+    if not _remote_on():
+        return JSONResponse({"ok": False, "msg": "未开启手机添加"}, status_code=403)
+    if str((payload or {}).get("token", "")).upper() != str(cfg.get("remote_token", "")).upper():
+        return JSONResponse({"ok": False, "msg": "口令不对"}, status_code=401)
+    try:
+        url_id = int((payload or {}).get("id"))
+    except (TypeError, ValueError):
+        return JSONResponse({"ok": False, "msg": "缺少网址 id"}, status_code=400)
+    target = next((u for u in DB.list_urls() if u["id"] == url_id), None)
+    if not target:
+        return JSONResponse({"ok": False, "msg": "这个网址已经不在列表里"}, status_code=404)
+    DB.delete_url(url_id)
+    SCHED.remove_url(url_id)
+    emit({"type": "urls", "data": DB.list_urls()})
+    emit({"type": "toast", "level": "info", "msg": f"手机删除了：{target['url']}"})
+    return {"ok": True, "deleted": target["url"]}
+
+
+@app.post("/api/inbox/delete")
+def api_inbox_delete_post(payload: dict = Body(...)):
+    return _inbox_delete(payload or {})
+
+
+@app.get("/api/inbox/delete")
+def api_inbox_delete_get(token: str = "", id: int = 0):
+    return _inbox_delete({"token": token, "id": id})
+
+
 # ---------------- 控制 ----------------
 @app.post("/api/control")
 def api_control(payload: dict = Body(...)):
